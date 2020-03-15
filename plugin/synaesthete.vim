@@ -56,51 +56,52 @@ let g:synaesthete#no_default_builtin_highlight = get(g:, 'synaesthete#no_default
 "     hi link pythonKeyword pythonNumber
 " endfunction
 
-function! s:filetype_changed()
-    let l:ft = expand('<amatch>')
-    if index(g:synaesthete#filetypes, l:ft) != -1
-        if !get(b:, 'synaesthete_attached', v:false)
-            SynaestheteEnable
-        endif
-    else
-        if get(b:, 'synaesthete_attached', v:false)
-            SynaestheteDisable
-        endif
-    endif
-endfunction
+" function! s:filetype_changed()
+"     let l:ft = expand('<amatch>')
+"     if index(g:synaesthete#filetypes, l:ft) != -1
+"         if !get(b:, 'synaesthete_attached', v:false)
+"             SynaestheteEnable
+"         endif
+"     else
+"         if get(b:, 'synaesthete_attached', v:false)
+"             SynaestheteDisable
+"         endif
+"     endif
+" endfunction
 
-function! synaesthete#buffer_attach()
-    if get(b:, 'synaesthete_attached', v:false)
-        return
-    endif
-    let b:synaesthete_attached = v:true
-    augroup SynaestheteEvents
-        " autocmd BufEnter <buffer> call SynaestheteBufEnter(+expand('<abuf>'), line('w0'), line('w$'))
-        autocmd CursorMoved <buffer> call SynaestheteCursorMoved(line('w0'), line('w$'))
-        autocmd CursorMovedI <buffer> call SynaestheteCursorMoved(line('w0'), line('w$'))
-    augroup END
-    " call SynaestheteBufEnter(bufnr('%'), line('w0'), line('w$'))
-endfunction
+" function! synaesthete#buffer_attach()
+"     if get(b:, 'synaesthete_attached', v:false)
+"         return
+"     endif
+"     let b:synaesthete_attached = v:true
+"     augroup SynaestheteEvents
+"         autocmd BufEnter <buffer> call SynaestheteBufEnter(+expand('<abuf>'), line('w0'), line('w$'))
+"         autocmd CursorMoved <buffer> call SynaestheteCursorMoved(line('w0'), line('w$'))
+"         autocmd CursorMovedI <buffer> call SynaestheteCursorMoved(line('w0'), line('w$'))
+"     augroup END
+"     call SynaestheteBufEnter(bufnr('%'), line('w0'), line('w$'))
+" endfunction
 
-function! synaesthete#buffer_detach()
-    let b:synaesthete_attached = v:false
-    augroup SynaestheteEvents
-        autocmd! BufEnter <buffer>
-        autocmd! CursorMoved <buffer>
-        autocmd! CursorMovedI <buffer>
-    augroup END
-endfunction
+" function! synaesthete#buffer_detach()
+"     let b:synaesthete_attached = v:false
+"     augroup SynaestheteEvents
+"         autocmd! BufEnter <buffer>
+"         autocmd! CursorMoved <buffer>
+"         autocmd! CursorMovedI <buffer>
+"     augroup END
+" endfunction
 
-function! synaesthete#init()
-    " if g:synaesthete#no_default_builtin_highlight
-    "     call s:disable_builtin_highlights()
-    " endif
-    " if g:synaesthete#simplify_markup
-    "     call s:simplify_markup()
-    " endif
+" function! synaesthete#init()
+"     if g:synaesthete#no_default_builtin_highlight
+"         call s:disable_builtin_highlights()
+"     endif
+"     if g:synaesthete#simplify_markup
+"         call s:simplify_markup()
+"     endif
 
-    autocmd FileType * call s:filetype_changed()
-    autocmd BufWipeout * call SynaestheteBufWipeout(+expand('<abuf>'))
-endfunction
+"     autocmd FileType * call s:filetype_changed()
+"     autocmd BufWipeout * call SynaestheteBufWipeout(+expand('<abuf>'))
+" endfunction
 
-call synaesthete#init()
+" call synaesthete#init()
+SynaestheteEnable

@@ -6,9 +6,21 @@ except ImportError:
     import neovim
 
 from pyrsistent import pmap
+from copy import copy
 
 from .handler import BufferHandler
 from .node import hl_groups
+
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+error, debug, info, warn = (
+    logger.error,
+    logger.debug,
+    logger.info,
+    logger.warning,
+)
 
 
 # _subcommands = {}
@@ -36,7 +48,38 @@ from .node import hl_groups
 #         func(self, *args, **kwargs)
 
 #     _subcommands[func.__name__] = wrapper
-#     return wrapper
+#    return wrapper
+
+
+def handle_registration():
+    """
+    Pre/post event handler decorator
+    This allows us to disable any event handler when the
+    plugin is disabled
+    """
+    def wrapper(f):
+        @wraps(f)
+        def wrapped(self, *f_args, **f_kwargs):
+            if self.plugin_enabled:
+                f(self, *f_args, **f_kwargs)
+
+        return wrapped
+
+    return wrapper
+
+
+EVENTS = {
+    "BufEnter",
+    "BufLeave",
+    "VimResized",
+    "TextChanged",
+    "TextChangedI",
+    "VimLeave",
+    "CursorMoved",
+    "CursorMovedI",
+}
+
+initial_request_handlers = None
 
 
 @neovim.plugin
@@ -54,6 +97,9 @@ class Plugin:
         # The currently active buffer handler
         self._cur_handler = None
         self._options = Options(vim)
+        # self.initial_request_handlers = None
+        self.host_handlers_are_noops = False
+        self.plugin_enabled = False
 
     def _init_with_vim(self):
         """Initialize with vim available.
@@ -71,8 +117,18 @@ class Plugin:
         msg = " ".join([str(m) for m in msgs])
         self._vim.err_write(msg + "\n")
 
+    # @neovim.autocmd("FileType", eval="expand('<amatch>')", sync=True)
+    # def event_filetype_changed(self, filetype):
+    #     # filetype = self._vim.command_output("echo &filetype")
+    #     if filetype not in self._options.filetypes:
+    #         self.disable()
+    #     else:
+    #         self.enable()
+
     @neovim.autocmd("BufEnter", pattern="*.py", eval="[expand('<abuf>'), line('w0'), line('w$')]", sync=True)
+    @handle_registration()
     def event_buf_enter(self, args):
+
         buf_num, view_start, view_stop = args
         self._select_handler(int(buf_num))
         self._update_viewport(view_start, view_stop)
@@ -80,6 +136,7 @@ class Plugin:
         self._mark_selected()
 
     @neovim.autocmd("BufLeave", pattern="*.py", sync=True)
+    @handle_registration()
     def event_buf_leave(self):
         self._cur_handler = None
 
@@ -88,13 +145,23 @@ class Plugin:
         self._remove_handler(args[0])
 
     @neovim.autocmd("VimResized", pattern="*.py", eval="[line('w0'), line('w$')]", sync=True)
+    @handle_registration()
     def event_vim_resized(self, args):
         self.echo(str(args))
         view_start, view_end = args
         self._update_viewport(view_start, view_end)
         self._mark_selected()
 
-    @neovim.function("SynaestheteCursorMoved", sync=False)
+    @neovim.autocmd("CursorMoved", pattern="*.py", eval="[line('w0'), line('w$')]", sync=True)
+    @handle_registration()
+    def event_cursor_moved_command_mode(self, args):
+        self.event_cursor_moved(args)
+
+    @neovim.autocmd("CursorMovedI", pattern="*.py", eval="[line('w0'), line('w$')]", sync=True)
+    @handle_registration()
+    def event_cursor_moved_insert_mode(self, args):
+        self.event_cursor_moved(args)
+
     def event_cursor_moved(self, args):
         if self._cur_handler is None:
             # CursorMoved may trigger before BufEnter, so select the buffer if
@@ -104,13 +171,15 @@ class Plugin:
         self._update_viewport(*args)
         self._mark_selected()
 
-    @neovim.autocmd("TextChanged", sync=True)
+    @neovim.autocmd("TextChanged", pattern="*.py", sync=True)
+    @handle_registration()
     def event_text_changed_command_mode(self):
         self.event_text_changed()
         # Note: TextChanged event doesn't trigger if text was changed in
         # unfocused buffer via e.g. nvim_buf_set_lines().
 
-    @neovim.autocmd("TextChangedI", sync=True)
+    @neovim.autocmd("TextChangedI", pattern="*.py", sync=True)
+    @handle_registration()
     def event_text_changed_insert_mode(self):
         self.event_text_changed()
 
@@ -118,6 +187,7 @@ class Plugin:
         self._cur_handler.update()
 
     @neovim.autocmd("VimLeave", sync=True)
+    @handle_registration()
     def event_vim_leave(self):
         for handler in self._handlers.values():
             handler.shutdown()
@@ -148,8 +218,29 @@ class Plugin:
         plugin = self  # noqa pylint: disable=unused-variable
         return eval(args[0])  # pylint: disable=eval-used
 
+    def capture_host_instance(self):
+        self.host = self._vim._err_cb.__self__
+
+    def reset_host_handlers(self):
+        global initial_request_handlers
+        if self.host_handlers_are_noops:
+            debug("-------------------------ARE NOOPS")
+            self.host._request_handlers = initial_request_handlers
+            self.host_handlers_are_noops = False
+
+        if initial_request_handlers is None:
+            initial_request_handlers = copy(self.host._request_handlers)
+
     @neovim.command("SynaestheteEnable", sync=True)
     def enable(self):
+        self.plugin_enabled = True
+        # filetype = self._vim.command_output("echo &filetype")
+        # if filetype not in self._options.filetypes:
+        #     return
+
+        # debug("-------------------------LEW")
+        # self.capture_host_instance()
+        # self.reset_host_handlers()
         self._attach_listeners()
         self._select_handler(self._vim.current.buffer)
         self._update_viewport(*self._vim.eval('[line("w0"), line("w$")]'))
@@ -157,10 +248,19 @@ class Plugin:
 
     @neovim.command("SynaestheteDisable", sync=True)
     def disable(self):
+        # self._err_cb(
+        self.plugin_enabled = False
         self.clear()
-        self._detach_listeners()
+        self.detach_request_handlers()
         self._cur_handler = None
         self._remove_handler(self._vim.current.buffer)
+
+    # @subcommand(needs_handler=True)
+    # def disable(self):
+    #     self.clear()
+    #     self._detach_listeners()
+    #     self._cur_handler = None
+    #     self._remove_handler(self._vim.current.buffer)
 
     # @subcommand
     # def toggle(self):
@@ -173,12 +273,13 @@ class Plugin:
     # def pause(self):
     #     self._detach_listeners()
 
+    # @subcommand(needs_handler=True, silent_fail=False)
     def highlight(self):
         self._cur_handler.update(force=True, sync=True)
 
     # @subcommand(needs_handler=True)
-    # def clear(self):
-    #     self._cur_handler.clear_highlights()
+    def clear(self):
+        self._cur_handler.clear_highlights()
 
     # @subcommand(needs_handler=True, silent_fail=False)
     # def rename(self, new_name=None):
@@ -235,15 +336,25 @@ class Plugin:
         self._cur_handler.mark_selected(self._vim.current.window.cursor)
 
     def _attach_listeners(self):
-        self._vim.call("synaesthete#buffer_attach")
+        # self._vim.call("synaesthete#buffer_attach")
+        pass
 
-    def _detach_listeners(self):
-        self._vim.call("synaesthete#buffer_detach")
+    def detach_request_handlers(self):
+        # for name, handler in self.host._request_handlers.items():
+        #     for event in EVENTS:
+        #         if event in name:
+        #             self.host._request_handlers[name] = noop
+        # self.host_handlers_are_noops = True
+        pass
 
     def _listeners_attached(self):
         """Return whether event listeners are attached to the current buffer.
         """
         return self._vim.eval('get(b:, "synaesthete_attached", v:false)')
+
+
+def noop(*args, **kwargs):
+    pass
 
 
 class Options:
